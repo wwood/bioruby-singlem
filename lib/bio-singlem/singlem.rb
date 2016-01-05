@@ -13,7 +13,7 @@ module Bio
         cmd = "singlem pipe --sequences #{sequence_files.collect{|s| s.inspect}.join(' ')} --otu_table /dev/stdout"
         cmd += " --threads #{options[:threads]}" if options[:threads]
         cmd += " --singlem_packages #{options[:singlem_packages].collect{|s| s.inspect}.join(' ')}" if options[:singlem_packages]
-        
+
         return OtuTable.parse_from_standard_otu_table(
                  StringIO.new(Bio::Commandeer.run(cmd)))
       end
@@ -25,14 +25,23 @@ module Bio
       # Options:
       # :otu_table: Query using the given OtuTable object
       def self.query(database_path, options)
-        raise "options[:otu_table] required at the moment" unless options[:otu_table]
-
-        Tempfile.open('bio-singlem-query') do |tempfile|
-          options[:otu_table].write(tempfile)
-          tempfile.close #to flush
+        cmd = "singlem query --db #{database_path}"
+        if options[:sequence]
+          cmd += " --query_sequence #{options[:sequence].inspect}"
           return QueryResult.parse(
-                   StringIO.new(
-                     Bio::Commandeer.run "singlem query --query_otu_table '#{tempfile.path}' --db #{database_path}"))
+            StringIO.new(
+              Bio::Commandeer.run cmd))
+        elsif options[:otu_table]
+          Tempfile.open('bio-singlem-query') do |tempfile|
+            options[:otu_table].write(tempfile)
+            tempfile.close #to flush
+            cmd += " --query_otu_table '#{tempfile.path}'"
+            return QueryResult.parse(
+              StringIO.new(
+                Bio::Commandeer.run cmd))
+          end
+        else
+          raise "Either :sequences or :otu_table must be specified"
         end
       end
     end
@@ -40,11 +49,11 @@ module Bio
     class OtuTableEntry
       attr_accessor :marker, :sample_name, :sequence, :count, :coverage, :taxonomy
     end
-    
+
     class OtuTable
       # Array of strings
       attr_accessor :headers
-      
+
       # Array of OtuTableEntry objects
       attr_accessor :otus
 
@@ -61,7 +70,7 @@ module Bio
           otu.sample_name = row[i]; i+=1
           otu.sequence = row[i]; i+=1
           otu.count = row[i].to_i; i+=1
-          otu.coverage = row[i].to_f; i+=1 
+          otu.coverage = row[i].to_f; i+=1
           otu.taxonomy = row[i]; i+=1
           table.otus.push otu
         end
@@ -81,18 +90,18 @@ module Bio
         end
       end
     end
-        
+
     class QueryResultOtu
       attr_accessor :query_name, :query_sequence, :divergence, :num_hits, :sample_name, :marker, :hit_sequence, :hit_taxonomy
     end
-    
+
     class QueryResult
       attr_accessor :otus
-      
+
       def self.parse(io)
         result = QueryResult.new
         result.otus = []
-        
+
         CSV.new(io, :headers=>true, :col_sep => "\t").each do |row|
           raise "Parse exception on this line: #{row.inspect}" if row.length < 8
           otu = QueryResultOtu.new
